@@ -1,0 +1,21 @@
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# SDK AARs — proprietary, not to be committed
+app/libs/*.aar
+app/libs/*.jar
+
+# Keystore
+*.jks
+*.keystore
+
+# OS
+.DS_Store
