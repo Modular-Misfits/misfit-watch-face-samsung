@@ -30,7 +30,8 @@ class HealthDataProvider(
         Permission.of(DataTypes.STEPS, AccessType.READ),
         Permission.of(DataTypes.ACTIVITY_SUMMARY, AccessType.READ),
         Permission.of(DataTypes.HEART_RATE, AccessType.READ),
-        Permission.of(DataTypes.ENERGY_SCORE, AccessType.READ)
+        Permission.of(DataTypes.ENERGY_SCORE, AccessType.READ),
+        Permission.of(DataTypes.SLEEP, AccessType.READ)
     )
 
     fun start() {
@@ -75,12 +76,19 @@ class HealthDataProvider(
         val activeMinutes = fetchActiveMinutes(s, localTimeFilter)
         val heartRate = fetchHeartRate(s, localTimeFilter)
         val energyScore = fetchEnergyScore(s, localDateFilter)
+        val calories = fetchCalories(s, localTimeFilter)
+        // Sleep score is from the previous night — use yesterday's date range
+        val yesterday = today.minusDays(1)
+        val sleepFilter = LocalTimeFilter.of(yesterday.atTime(18, 0), today.atTime(12, 0))
+        val sleepScore = fetchSleepScore(s, sleepFilter)
 
         onUpdate(HealthSnapshot(
             steps = steps,
             activeMinutes = activeMinutes,
             heartRate = heartRate,
-            energyScore = energyScore
+            energyScore = energyScore,
+            calories = calories,
+            sleepScore = sleepScore
         ))
     }
 
@@ -141,6 +149,35 @@ class HealthDataProvider(
             point?.getValue(DataType.EnergyScoreType.ENERGY_SCORE)?.toInt() ?: 50
         } catch (e: Exception) {
             Log.e(TAG, "fetchEnergyScore: ${e.message}"); 50
+        }
+    }
+
+    private suspend fun fetchCalories(s: HealthDataStore, filter: LocalTimeFilter): Int {
+        return try {
+            val request = DataType.ActivitySummaryType.TOTAL_ACTIVE_CALORIES_BURNED
+                .requestBuilder
+                .setLocalTimeFilter(filter)
+                .build()
+            val response = s.aggregateData(request)
+            response.dataList.firstOrNull()?.value?.toInt() ?: 0
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCalories: ${e.message}"); 0
+        }
+    }
+
+    private suspend fun fetchSleepScore(s: HealthDataStore, filter: LocalTimeFilter): Int {
+        return try {
+            val request = DataTypes.SLEEP
+                .readDataRequestBuilder
+                .setLocalTimeFilter(filter)
+                .setOrdering(Ordering.DESC)
+                .setLimit(1)
+                .build()
+            val response = s.readData(request)
+            val point = response.dataList.firstOrNull()
+            point?.getValue(DataType.SleepType.SLEEP_SCORE) ?: 0
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchSleepScore: ${e.message}"); 0
         }
     }
 }
