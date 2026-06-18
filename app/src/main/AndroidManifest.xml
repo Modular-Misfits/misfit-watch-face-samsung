@@ -1,8 +1,30 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.type.watch" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <application android:theme="@android:style/Theme.DeviceDefault" android:label="Misfit Cyber Analog" android:allowBackup="false" android:supportsRtl="true">
-        <service android:name=".MisfitWatchFaceService" android:exported="true" android:label="Misfit Cyber Analog" android:permission="android.permission.BIND_WALLPAPER">
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
+
+    <!-- Required for Samsung Health SDK on Android 11+ -->
+    <queries>
+        <package android:name="com.sec.android.app.shealth" />
+    </queries>
+
+    <application
+        android:theme="@android:style/Theme.DeviceDefault"
+        android:label="Misfit Cyber Analog"
+        android:allowBackup="false"
+        android:supportsRtl="true">
+
+        <!-- Samsung Health read permissions -->
+        <meta-data
+            android:name="com.samsung.android.health.permission.read"
+            android:value="com.samsung.health.step_count;com.samsung.health.heart_rate;com.samsung.health.exercise;com.samsung.health.energy_score" />
+
+        <service
+            android:name=".MisfitWatchFaceService"
+            android:exported="true"
+            android:label="Misfit Cyber Analog"
+            android:permission="android.permission.BIND_WALLPAPER">
             <intent-filter>
                 <action android:name="android.service.wallpaper.WallpaperService" />
                 <category android:name="com.google.android.wearable.watchface.category.WATCH_FACE" />
@@ -11,5 +33,17 @@
             <meta-data android:name="com.google.android.wearable.watchface.preview" android:resource="@drawable/preview" />
             <meta-data android:name="com.google.android.wearable.watchface.preview_circular" android:resource="@drawable/preview" />
         </service>
+
+        <!-- Launched on first install to request Samsung Health permissions -->
+        <activity
+            android:name=".HealthPermissionActivity"
+            android:exported="true"
+            android:label="Health Permissions">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
     </application>
 </manifest>
