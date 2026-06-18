@@ -47,7 +47,7 @@ dependencies {
     implementation 'androidx.core:core-ktx:1.15.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 
-    // Samsung Health Data SDK — AAR must be placed in app/libs/
-    implementation fileTree(dir: 'libs', include: ['*.aar'])
+    // Samsung Health Data SDK — pulled from GitHub Packages
+    implementation 'com.samsung.android.sdk.health:health-data-api:1.1.0'
     implementation 'com.google.code.gson:gson:2.10.1'
 }
