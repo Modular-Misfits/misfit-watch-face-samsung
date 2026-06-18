@@ -1,64 +1,48 @@
 package com.modularmisfits.watchface
 
-import android.app.Activity
 import android.os.Bundle
 import android.util.Log
-import com.samsung.android.sdk.health.data.HealthDataService
-import com.samsung.android.sdk.health.data.error.ResolvablePlatformException
-import com.samsung.android.sdk.health.data.permission.AccessType
-import com.samsung.android.sdk.health.data.permission.Permission
-import com.samsung.android.sdk.health.data.request.DataTypes
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.*
 import kotlinx.coroutines.*
 
 private const val TAG = "HealthPermission"
 
-class HealthPermissionActivity : Activity() {
+class HealthPermissionActivity : ComponentActivity() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val requiredPermissions = setOf(
-        Permission.of(DataTypes.STEPS, AccessType.READ),
-        Permission.of(DataTypes.ACTIVITY_SUMMARY, AccessType.READ),
-        Permission.of(DataTypes.HEART_RATE, AccessType.READ),
-        Permission.of(DataTypes.ENERGY_SCORE, AccessType.READ),
-        Permission.of(DataTypes.SLEEP, AccessType.READ)
-    )
+    companion object {
+        val PERMISSIONS = setOf(
+            HealthPermission.getReadPermission(StepsRecord::class),
+            HealthPermission.getReadPermission(HeartRateRecord::class),
+            HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+            HealthPermission.getReadPermission(SleepSessionRecord::class),
+            HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+        )
+    }
+
+    private val requestPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            Log.i(TAG, "Health Connect permissions result: $result")
+            finish()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         scope.launch {
-            try {
-                val store = HealthDataService.getStore(this@HealthPermissionActivity)
-                val granted = store.requestPermissions(requiredPermissions, this@HealthPermissionActivity)
-                Log.i(TAG, "Permissions granted: $granted")
-            } catch (e: ResolvablePlatformException) {
-                Log.w(TAG, "ResolvablePlatformException — resolving: ${e.message}")
-                if (e.hasResolution) {
-                    e.resolve(this@HealthPermissionActivity)
-                    // resolve() shows a system dialog; Activity result will come back via onActivityResult
-                } else {
-                    Log.e(TAG, "No resolution available: ${e.message}")
-                    finish()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Permission request failed: ${e.message}")
+            val client = HealthConnectClient.getOrCreate(this@HealthPermissionActivity)
+            val granted = client.permissionController.getGrantedPermissions()
+            if (granted.containsAll(PERMISSIONS)) {
+                Log.i(TAG, "All permissions already granted")
                 finish()
-            }
-        }
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        // After platform resolution (e.g. Samsung Health install/update), re-attempt permission request
-        scope.launch {
-            try {
-                val store = HealthDataService.getStore(this@HealthPermissionActivity)
-                val granted = store.requestPermissions(requiredPermissions, this@HealthPermissionActivity)
-                Log.i(TAG, "Permissions granted after resolution: $granted")
-            } catch (e: Exception) {
-                Log.e(TAG, "Permission request failed after resolution: ${e.message}")
-            } finally {
-                finish()
+            } else {
+                val missing = (PERMISSIONS - granted).toTypedArray()
+                Log.i(TAG, "Requesting ${missing.size} missing permissions")
+                requestPermissions.launch(missing)
             }
         }
     }

@@ -4,15 +4,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Samsung Health SDK published to GitHub Packages (AAR is gitignored from repo)
-        maven {
-            name = 'GitHubPackages'
-            url = uri('https://maven.pkg.github.com/Modular-Misfits/misfit-watch-face-samsung')
-            credentials {
-                username = providers.gradleProperty('gpr.user').orNull ?: System.getenv('GITHUB_ACTOR') ?: ''
-                password = providers.gradleProperty('gpr.token').orNull ?: System.getenv('GITHUB_TOKEN') ?: ''
-            }
-        }
     }
 }
 rootProject.name='MisfitCyberAnalogWatchFace'

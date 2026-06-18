@@ -3,11 +3,18 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.BODY_SENSORS" />
     <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
 
-    <!-- Required for Samsung Health SDK on Android 11+ — Wear OS uses wear.shealth -->
+    <!-- Health Connect permissions -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+
     <queries>
+        <package android:name="com.google.android.apps.healthdata" />
         <package android:name="com.samsung.android.wear.shealth" />
-        <package android:name="com.sec.android.app.shealth" />
     </queries>
 
     <application
@@ -15,11 +22,6 @@
         android:label="Misfit Cyber Analog"
         android:allowBackup="false"
         android:supportsRtl="true">
-
-        <!-- Samsung Health read permissions -->
-        <meta-data
-            android:name="com.samsung.android.health.permission.read"
-            android:value="com.samsung.health.step_count;com.samsung.health.heart_rate;com.samsung.health.exercise;com.samsung.health.energy_score;com.samsung.health.sleep" />
 
         <service
             android:name=".MisfitWatchFaceService"
@@ -35,7 +37,7 @@
             <meta-data android:name="com.google.android.wearable.watchface.preview_circular" android:resource="@drawable/preview" />
         </service>
 
-        <!-- Launched on first install to request Samsung Health permissions -->
+        <!-- Launched on first install to request Health Connect permissions -->
         <activity
             android:name=".HealthPermissionActivity"
             android:exported="true"
