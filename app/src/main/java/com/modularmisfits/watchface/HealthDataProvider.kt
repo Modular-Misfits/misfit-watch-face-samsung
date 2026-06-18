@@ -1,9 +1,11 @@
 package com.modularmisfits.watchface
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import com.samsung.android.sdk.health.data.HealthDataService
 import com.samsung.android.sdk.health.data.HealthDataStore
+import com.samsung.android.sdk.health.data.error.ResolvablePlatformException
 import com.samsung.android.sdk.health.data.permission.AccessType
 import com.samsung.android.sdk.health.data.permission.Permission
 import com.samsung.android.sdk.health.data.request.DataType
@@ -42,9 +44,20 @@ class HealthDataProvider(
                 if (granted.containsAll(requiredPermissions)) {
                     scheduleRefresh()
                 } else {
-                    Log.w(TAG, "Missing Samsung Health permissions — showing placeholder data")
+                    Log.w(TAG, "Missing permissions — launching HealthPermissionActivity")
+                    val intent = Intent(context, HealthPermissionActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
                     onUpdate(HealthSnapshot())
                 }
+            } catch (e: ResolvablePlatformException) {
+                Log.w(TAG, "ResolvablePlatformException (${e.message}) — launching HealthPermissionActivity to resolve")
+                val intent = Intent(context, HealthPermissionActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                onUpdate(HealthSnapshot())
             } catch (e: Exception) {
                 Log.e(TAG, "Samsung Health not available: ${e.message}")
                 onUpdate(HealthSnapshot())

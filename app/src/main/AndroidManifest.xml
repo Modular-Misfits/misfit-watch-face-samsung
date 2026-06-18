@@ -4,8 +4,9 @@
     <uses-permission android:name="android.permission.BODY_SENSORS" />
     <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
 
-    <!-- Required for Samsung Health SDK on Android 11+ -->
+    <!-- Required for Samsung Health SDK on Android 11+ — Wear OS uses wear.shealth -->
     <queries>
+        <package android:name="com.samsung.android.wear.shealth" />
         <package android:name="com.sec.android.app.shealth" />
     </queries>
 
