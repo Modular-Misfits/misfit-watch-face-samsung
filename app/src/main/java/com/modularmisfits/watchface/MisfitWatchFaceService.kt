@@ -289,13 +289,13 @@ class MisfitRenderer(
         if (!weather.hasData) {
             textPaint.textSize = r * 0.052f
             textPaint.color = Color.rgb(80, 100, 110)
-            canvas.drawText("-- °C", cx, baseY, textPaint)
+            canvas.drawText("-- °F", cx, baseY, textPaint)
             return
         }
 
-        val tempStr = "${weather.tempC.toInt()}°C"
+        val tempStr = "${weather.tempF.toInt()}°F"
         val symbol = weather.conditionSymbol()
-        val hiloStr = "H:${weather.highC.toInt()}° L:${weather.lowC.toInt()}°"
+        val hiloStr = "H:${weather.highF.toInt()}° L:${weather.lowF.toInt()}°"
 
         // Condition symbol (emoji-like)
         textPaint.textSize = r * 0.085f

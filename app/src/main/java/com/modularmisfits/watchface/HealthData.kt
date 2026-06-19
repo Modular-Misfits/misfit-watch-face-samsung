@@ -9,12 +9,12 @@ data class HealthSnapshot(
 )
 
 data class WeatherSnapshot(
-    val tempC: Float = Float.NaN,
-    val highC: Float = Float.NaN,
-    val lowC: Float = Float.NaN,
+    val tempF: Float = Float.NaN,
+    val highF: Float = Float.NaN,
+    val lowF: Float = Float.NaN,
     val conditionCode: Int = -1  // WMO weather code
 ) {
-    val hasData get() = !tempC.isNaN()
+    val hasData get() = !tempF.isNaN()
 
     fun conditionLabel(): String = when (conditionCode) {
         0 -> "Clear"
