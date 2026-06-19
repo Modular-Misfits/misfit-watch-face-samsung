@@ -45,22 +45,21 @@ class MisfitRenderer(
     private val ambientLogo by lazy { BitmapFactory.decodeResource(context.resources, R.drawable.misfit_logo_ambient) }
 
     private var health = HealthSnapshot()
+    private var weather = WeatherSnapshot()
 
-    // Logo dot positions as fractions of the 783×724 source image — measured by pixel scan
-    // Red   (top):    center (386,  75) → (0.4930, 0.1036)
-    // Teal  (right):  center (695, 316) → (0.8876, 0.4365)
-    // Blue  (left):   center ( 79, 334) → (0.1009, 0.4613)
-    // Blue  (bottom): center (383, 557) → (0.4891, 0.7693)
+    // Logo dot positions as fractions of the 783×724 source image
     private val DOT_RED_FX    = 0.4930f;  private val DOT_RED_FY    = 0.1036f
-    private val DOT_TEAL_FX   = 0.8876f;  private val DOT_TEAL_FY   = 0.4613f  // matched to left dot Y
+    private val DOT_TEAL_FX   = 0.8876f;  private val DOT_TEAL_FY   = 0.4613f
     private val DOT_LEFT_FX   = 0.1009f;  private val DOT_LEFT_FY   = 0.4613f
-    private val DOT_BOTTOM_FX = 0.4866f;  private val DOT_BOTTOM_FY = 0.8600f  // pushed below M body
+    private val DOT_BOTTOM_FX = 0.4866f;  private val DOT_BOTTOM_FY = 0.8600f
 
     // Colors
     private val cyberBlue  = Color.rgb(86, 154, 190)
     private val teal       = Color.rgb(70, 210, 190)
     private val logoRed    = Color.rgb(210, 70, 70)
     private val logoBlue   = Color.rgb(70, 110, 180)
+    private val stepGreen  = Color.rgb(70, 210, 130)
+    private val activeOrange = Color.rgb(255, 160, 0)
     private val handOrange = Color.rgb(255, 140, 0)
     private val secondRed  = Color.rgb(228, 64, 72)
 
@@ -75,6 +74,14 @@ class MisfitRenderer(
         health = snapshot
         invalidate()
     }
+    private val weatherProvider = WeatherProvider(context) { snapshot ->
+        weather = snapshot
+        invalidate()
+    }
+
+    // Arc hit regions (set during draw, used in tap detection)
+    private var leftArcCx = 0f; private var leftArcCy = 0f; private var leftArcR = 0f
+    private var rightArcCx = 0f; private var rightArcCy = 0f; private var rightArcR = 0f
 
     // Multi-tap tracking
     private var tapCount = 0
@@ -83,16 +90,18 @@ class MisfitRenderer(
     private var lastTapY = 0f
     private val MULTI_TAP_MS = 400L
 
+    init {
+        healthProvider.start()
+        weatherProvider.start()
+    }
+
     override fun onDestroy() {
         healthProvider.stop()
+        weatherProvider.stop()
         super.onDestroy()
     }
 
-    init {
-        healthProvider.start()
-    }
-
-    // ── Render dispatch ──────────────────────────────────────────────────────
+    // ── Render dispatch ──────────────────────────────────────────────────────────
 
     override fun render(canvas: Canvas, bounds: Rect, zonedDateTime: ZonedDateTime) {
         val cx = bounds.exactCenterX()
@@ -111,7 +120,7 @@ class MisfitRenderer(
         canvas.drawColor(renderParameters.highlightLayer!!.backgroundTint)
     }
 
-    // ── Clock view ───────────────────────────────────────────────────────────
+    // ── Clock view ───────────────────────────────────────────────────────────────
 
     private fun drawClockView(canvas: Canvas, bounds: Rect, time: ZonedDateTime, ambient: Boolean) {
         val cx = bounds.exactCenterX()
@@ -131,15 +140,15 @@ class MisfitRenderer(
         paint.alpha = 255
 
         if (!ambient) {
-            drawStressArc(canvas, cx, cy, r)
-            drawStatsRow(canvas, cx, cy, r)
+            drawStepsArc(canvas, cx, cy, r)
+            drawActiveMinutesArc(canvas, cx, cy, r)
+            drawWeatherRow(canvas, cx, cy, r)
         }
 
-        // Hands drawn BEFORE dots so dots float on top
         drawHands(canvas, cx, cy, r, time, ambient)
 
-        // All four info dots drawn last — always on top of hands
-        val dotR = logoW * 0.092f   // uniform radius sized to visually fill the logo dots
+        // Info dots — always on top
+        val dotR = logoW * 0.092f
 
         // Red dot (top) — heart rate
         val hrX = logoLeft + DOT_RED_FX * logoW
@@ -167,35 +176,168 @@ class MisfitRenderer(
         }
     }
 
-    // ── Generic info dot (number + label) ───────────────────────────────────
+    // ── Left arc: steps toward 10k goal ─────────────────────────────────────────
+
+    private fun drawStepsArc(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val arcR = r * 0.88f
+        val startAngle = 150f
+        val sweepTotal = -120f   // sweeps counter-clockwise from lower-left
+
+        // Cache hit region for tap detection
+        leftArcCx = cx; leftArcCy = cy; leftArcR = arcR
+
+        val oval = RectF(cx - arcR, cy - arcR, cx + arcR, cy + arcR)
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = r * 0.045f
+        paint.strokeCap = Paint.Cap.ROUND
+
+        // Track background
+        paint.color = Color.rgb(30, 45, 35)
+        canvas.drawArc(oval, startAngle, sweepTotal, false, paint)
+
+        // Filled portion
+        val pct = (health.steps / STEP_GOAL.toFloat()).coerceIn(0f, 1f)
+        val filled = pct * abs(sweepTotal)
+        paint.color = stepColor(pct)
+        canvas.drawArc(oval, startAngle, -filled, false, paint)
+
+        // Tick marks at 25%, 50%, 75%, 100%
+        paint.strokeWidth = r * 0.018f
+        paint.color = Color.rgb(50, 80, 60)
+        for (i in 0..4) {
+            val tickPct = i / 4f
+            val tickAngle = Math.toRadians((startAngle - tickPct * abs(sweepTotal)).toDouble())
+            val innerR = arcR - r * 0.055f
+            val outerR = arcR + r * 0.055f
+            canvas.drawLine(
+                cx + cos(tickAngle).toFloat() * innerR, cy + sin(tickAngle).toFloat() * innerR,
+                cx + cos(tickAngle).toFloat() * outerR, cy + sin(tickAngle).toFloat() * outerR,
+                paint
+            )
+        }
+
+        // Label
+        textPaint.textSize = r * 0.038f
+        textPaint.color = Color.rgb(120, 200, 140)
+        canvas.drawText("steps", cx - r * 0.82f, cy + r * 0.04f, textPaint)
+        paint.style = Paint.Style.FILL
+    }
+
+    private fun stepColor(pct: Float) = when {
+        pct >= 1.0f -> stepGreen
+        pct >= 0.5f -> Color.rgb(140, 210, 80)
+        pct >= 0.25f -> Color.rgb(230, 180, 50)
+        else -> Color.rgb(180, 100, 50)
+    }
+
+    // ── Right arc: active minutes toward 60-min goal ─────────────────────────────
+
+    private fun drawActiveMinutesArc(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val arcR = r * 0.88f
+        // Mirror of left arc — starts at 30°, sweeps clockwise to 150°
+        val startAngle = 30f
+        val sweepTotal = 120f
+
+        rightArcCx = cx; rightArcCy = cy; rightArcR = arcR
+
+        val oval = RectF(cx - arcR, cy - arcR, cx + arcR, cy + arcR)
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = r * 0.045f
+        paint.strokeCap = Paint.Cap.ROUND
+
+        paint.color = Color.rgb(45, 35, 20)
+        canvas.drawArc(oval, startAngle, sweepTotal, false, paint)
+
+        val pct = (health.activeMinutes / ACTIVE_MIN_GOAL.toFloat()).coerceIn(0f, 1f)
+        val filled = pct * abs(sweepTotal)
+        paint.color = activeMinuteColor(pct)
+        canvas.drawArc(oval, startAngle, filled, false, paint)
+
+        paint.strokeWidth = r * 0.018f
+        paint.color = Color.rgb(80, 60, 30)
+        for (i in 0..4) {
+            val tickPct = i / 4f
+            val tickAngle = Math.toRadians((startAngle + tickPct * abs(sweepTotal)).toDouble())
+            val innerR = arcR - r * 0.055f
+            val outerR = arcR + r * 0.055f
+            canvas.drawLine(
+                cx + cos(tickAngle).toFloat() * innerR, cy + sin(tickAngle).toFloat() * innerR,
+                cx + cos(tickAngle).toFloat() * outerR, cy + sin(tickAngle).toFloat() * outerR,
+                paint
+            )
+        }
+
+        textPaint.textSize = r * 0.038f
+        textPaint.color = Color.rgb(200, 160, 80)
+        canvas.drawText("active", cx + r * 0.82f, cy + r * 0.04f, textPaint)
+        paint.style = Paint.Style.FILL
+    }
+
+    private fun activeMinuteColor(pct: Float) = when {
+        pct >= 1.0f -> activeOrange
+        pct >= 0.5f -> Color.rgb(230, 140, 40)
+        else -> Color.rgb(180, 100, 40)
+    }
+
+    // ── Weather row (bottom center, replaces steps+active text) ──────────────────
+
+    private fun drawWeatherRow(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val baseY = cy + r * 0.60f
+
+        if (!weather.hasData) {
+            textPaint.textSize = r * 0.052f
+            textPaint.color = Color.rgb(80, 100, 110)
+            canvas.drawText("-- °C", cx, baseY, textPaint)
+            return
+        }
+
+        val tempStr = "${weather.tempC.toInt()}°C"
+        val symbol = weather.conditionSymbol()
+        val hiloStr = "H:${weather.highC.toInt()}° L:${weather.lowC.toInt()}°"
+
+        // Condition symbol (emoji-like)
+        textPaint.textSize = r * 0.085f
+        textPaint.color = Color.WHITE
+        canvas.drawText(symbol, cx - r * 0.28f, baseY, textPaint)
+
+        // Temperature
+        textPaint.textSize = r * 0.082f
+        textPaint.color = Color.WHITE
+        canvas.drawText(tempStr, cx + r * 0.15f, baseY, textPaint)
+
+        // High/Low below
+        textPaint.textSize = r * 0.036f
+        textPaint.color = Color.rgb(140, 170, 190)
+        canvas.drawText(hiloStr, cx, baseY + r * 0.09f, textPaint)
+    }
+
+    // ── Generic info dot ─────────────────────────────────────────────────────────
 
     private fun drawInfoDot(canvas: Canvas, x: Float, y: Float, rad: Float,
                              accentColor: Int, value: String, label: String, ambient: Boolean) {
-        // Dark fill
         paint.style = Paint.Style.FILL
         paint.color = if (ambient) Color.rgb(15, 15, 15) else Color.rgb(8, 18, 30)
         canvas.drawCircle(x, y, rad, paint)
 
-        // Accent ring
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = rad * 0.12f
         paint.color = if (ambient) Color.DKGRAY else accentColor
         canvas.drawCircle(x, y, rad, paint)
         paint.style = Paint.Style.FILL
 
-        // Value text — vertically centered, shifted up slightly to leave room for label
         textPaint.textSize = rad * 0.80f
         textPaint.color = if (ambient) Color.GRAY else Color.WHITE
         val numY = y - (textPaint.ascent() + textPaint.descent()) / 2 - rad * 0.15f
         canvas.drawText(value, x, numY, textPaint)
 
-        // Label text below value
         textPaint.textSize = rad * 0.34f
         textPaint.color = if (ambient) Color.DKGRAY else accentColor
         canvas.drawText(label, x, numY + rad * 0.52f, textPaint)
     }
 
-    // ── Date dot (no label — date number fills the dot) ──────────────────────
+    // ── Date dot ─────────────────────────────────────────────────────────────────
 
     private fun drawDateDot(canvas: Canvas, x: Float, y: Float, rad: Float,
                              t: ZonedDateTime, ambient: Boolean) {
@@ -215,63 +357,7 @@ class MisfitRenderer(
         canvas.drawText(t.dayOfMonth.toString(), x, dateY, textPaint)
     }
 
-    // ── Stress arc (left side) ────────────────────────────────────────────────
-
-    private fun drawStressArc(canvas: Canvas, cx: Float, cy: Float, r: Float) {
-        val arcR = r * 0.88f
-        val oval = RectF(cx - arcR, cy - arcR, cx + arcR, cy + arcR)
-        val startAngle = 150f
-        val sweepTotal = -120f
-
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = r * 0.045f
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.color = Color.rgb(30, 45, 55)
-        canvas.drawArc(oval, startAngle, sweepTotal, false, paint)
-
-        val filled = (health.energyScore / 100f).coerceIn(0f, 1f) * abs(sweepTotal)
-        paint.color = energyColor(health.energyScore)
-        canvas.drawArc(oval, startAngle, -filled, false, paint)
-
-        paint.strokeWidth = r * 0.018f
-        paint.color = Color.rgb(60, 80, 90)
-        for (i in 0..4) {
-            val pct = i / 4f
-            val tickAngle = Math.toRadians((startAngle - pct * abs(sweepTotal)).toDouble())
-            val innerR = arcR - r * 0.055f
-            val outerR = arcR + r * 0.055f
-            canvas.drawLine(
-                cx + cos(tickAngle).toFloat() * innerR, cy + sin(tickAngle).toFloat() * innerR,
-                cx + cos(tickAngle).toFloat() * outerR, cy + sin(tickAngle).toFloat() * outerR,
-                paint
-            )
-        }
-
-        textPaint.textSize = r * 0.038f
-        textPaint.color = Color.rgb(120, 160, 180)
-        canvas.drawText("${health.energyScore}", cx - r * 0.82f, cy + r * 0.04f, textPaint)
-        paint.style = Paint.Style.FILL
-    }
-
-    private fun energyColor(score: Int): Int = when {
-        score >= 70 -> Color.rgb(70, 210, 130)
-        score >= 40 -> Color.rgb(230, 180, 50)
-        else        -> Color.rgb(210, 70, 70)
-    }
-
-    // ── Steps + active minutes row ────────────────────────────────────────────
-
-    private fun drawStatsRow(canvas: Canvas, cx: Float, cy: Float, r: Float) {
-        val baseY = cy + r * 0.60f
-        textPaint.textSize = r * 0.072f; textPaint.color = Color.WHITE
-        canvas.drawText(formatSteps(health.steps), cx - r * 0.30f, baseY, textPaint)
-        canvas.drawText("${health.activeMinutes}m", cx + r * 0.30f, baseY, textPaint)
-        textPaint.textSize = r * 0.036f; textPaint.color = Color.rgb(140, 170, 190)
-        canvas.drawText("steps",  cx - r * 0.30f, baseY + r * 0.07f, textPaint)
-        canvas.drawText("active", cx + r * 0.30f, baseY + r * 0.07f, textPaint)
-    }
-
-    // ── Tick marks ───────────────────────────────────────────────────────────
+    // ── Tick marks ───────────────────────────────────────────────────────────────
 
     private fun drawTicks(canvas: Canvas, cx: Float, cy: Float, r: Float, ambient: Boolean) {
         paint.style = Paint.Style.STROKE
@@ -296,7 +382,7 @@ class MisfitRenderer(
         paint.style = Paint.Style.FILL
     }
 
-    // ── Hands ────────────────────────────────────────────────────────────────
+    // ── Hands ────────────────────────────────────────────────────────────────────
 
     private fun drawHands(canvas: Canvas, cx: Float, cy: Float, r: Float,
                            t: ZonedDateTime, ambient: Boolean) {
@@ -330,7 +416,7 @@ class MisfitRenderer(
         paint.style = Paint.Style.FILL
     }
 
-    // ── Backgrounds ──────────────────────────────────────────────────────────
+    // ── Backgrounds ──────────────────────────────────────────────────────────────
 
     private fun drawRadialBackground(canvas: Canvas, cx: Float, cy: Float, r: Float) {
         paint.shader = RadialGradient(cx, cy, r,
@@ -347,7 +433,7 @@ class MisfitRenderer(
         paint.style = Paint.Style.FILL
     }
 
-    // ── Tap / gesture handling ───────────────────────────────────────────────
+    // ── Tap / gesture handling ────────────────────────────────────────────────────
 
     override fun onTapEvent(tapType: Int, tapEvent: TapEvent, complicationSlot: ComplicationSlot?) {
         if (tapType != TapType.UP) return
@@ -367,21 +453,13 @@ class MisfitRenderer(
 
         when (tapCount) {
             1 -> handleSingleTap(x, y)
-            2 -> {
-                tapCount = 0
-                launchIntent(buildAlarmIntent())
-            }
-            3 -> {
-                tapCount = 0
-                launchIntent(buildWalletIntent())
-            }
+            2 -> { tapCount = 0; launchIntent(buildAlarmIntent()) }
+            3 -> { tapCount = 0; launchIntent(buildWalletIntent()) }
         }
-
         invalidate()
     }
 
     private fun handleSingleTap(x: Float, y: Float) {
-        // Recompute dot positions from the current screen size
         val bounds = screenBounds
         val cx = bounds.exactCenterX()
         val cy = bounds.exactCenterY()
@@ -392,6 +470,20 @@ class MisfitRenderer(
         val logoTop  = cy - logoH / 2 - r * 0.05f
         val dotR = logoW * 0.092f
 
+        // Left arc (steps) — annular hit zone at arcR ± strokeWidth
+        val arcR = r * 0.88f
+        val distFromCenter = hypot(x - cx, y - cy)
+        val leftArcAngle = Math.toDegrees(atan2((y - cy).toDouble(), (x - cx).toDouble())).toFloat()
+            .let { if (it < 0) it + 360f else it }
+        // Left arc spans 150° → 30° going counter-clockwise = 150° → 270° clockwise dead zone
+        // Easier: arc covers 150°–270° in standard (clockwise from right). Check angle in [150,270].
+        val inLeftArcAngle = leftArcAngle in 150f..270f
+        if (inLeftArcAngle && distFromCenter in (arcR - r * 0.08f)..(arcR + r * 0.08f)) {
+            launchIntent(buildStepsIntent())
+            return
+        }
+
+        // Info dots
         data class Dot(val fx: Float, val fy: Float, val intent: Intent?)
         val dots = listOf(
             Dot(DOT_RED_FX,    DOT_RED_FY,    buildHeartRateIntent()),
@@ -399,7 +491,6 @@ class MisfitRenderer(
             Dot(DOT_LEFT_FX,   DOT_LEFT_FY,   buildCaloriesIntent()),
             Dot(DOT_BOTTOM_FX, DOT_BOTTOM_FY, buildSleepIntent()),
         )
-
         for (dot in dots) {
             val dx = logoLeft + dot.fx * logoW
             val dy = logoTop  + dot.fy * logoH
@@ -408,64 +499,28 @@ class MisfitRenderer(
                 return
             }
         }
-
-        // Also handle stats row taps (steps / active minutes)
-        val stepsX = cx - r * 0.30f
-        val activeX = cx + r * 0.30f
-        val rowY = cy + r * 0.60f
-        val rowHitR = r * 0.18f
-        when {
-            hypot(x - stepsX, y - rowY) <= rowHitR -> launchIntent(buildStepsIntent())
-            hypot(x - activeX, y - rowY) <= rowHitR -> launchIntent(buildWorkoutIntent())
-        }
     }
 
     private fun launchIntent(intent: Intent) {
         try {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
-        } catch (e: Exception) {
-            // App not installed — silently ignore
-        }
+        } catch (_: Exception) {}
     }
 
-    // Samsung Health deep-link intents
     private fun buildHeartRateIntent() = Intent(Intent.ACTION_VIEW,
         Uri.parse("shealth://com.sec.android.app.shealth/HeartRate"))
-
     private fun buildCaloriesIntent() = Intent(Intent.ACTION_VIEW,
         Uri.parse("shealth://com.sec.android.app.shealth/Dashboard"))
-
     private fun buildSleepIntent() = Intent(Intent.ACTION_VIEW,
         Uri.parse("shealth://com.sec.android.app.shealth/Sleep"))
-
     private fun buildStepsIntent() = Intent(Intent.ACTION_VIEW,
         Uri.parse("shealth://com.sec.android.app.shealth/StepCount"))
-
-    private fun buildWorkoutIntent() = Intent(Intent.ACTION_VIEW,
-        Uri.parse("shealth://com.sec.android.app.shealth/ExerciseSelection"))
-
-    private fun buildCalendarIntent(): Intent {
-        val intent = Intent(Intent.ACTION_MAIN)
-        intent.addCategory(Intent.CATEGORY_APP_CALENDAR)
-        return intent
+    private fun buildCalendarIntent(): Intent =
+        Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_APP_CALENDAR) }
+    private fun buildAlarmIntent() = Intent("com.samsung.android.alarmclock.action.SET_ALARM").apply {
+        `package` = "com.sec.android.app.clockpackage"
     }
-
-    private fun buildAlarmIntent(): Intent {
-        val intent = Intent(Intent.ACTION_MAIN)
-        intent.addCategory(Intent.CATEGORY_APP_CALENDAR)
-        // Galaxy Watch alarm screen
-        return Intent("com.samsung.android.alarmclock.action.SET_ALARM").apply {
-            `package` = "com.sec.android.app.clockpackage"
-        }
-    }
-
     private fun buildWalletIntent() = Intent(Intent.ACTION_VIEW,
         Uri.parse("samsungpay://com.samsung.android.spay"))
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    private fun formatSteps(steps: Int): String =
-        if (steps >= 1000) "${steps / 1000},${"%03d".format(steps % 1000)}"
-        else steps.toString()
 }
