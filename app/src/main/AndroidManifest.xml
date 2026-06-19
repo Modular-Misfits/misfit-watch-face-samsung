@@ -4,19 +4,9 @@
     <uses-permission android:name="android.permission.BODY_SENSORS" />
     <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
-
-    <!-- Health Connect permissions -->
-    <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
-    <uses-permission android:name="android.permission.health.READ_SLEEP" />
-    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
-
-    <queries>
-        <package android:name="com.google.android.apps.healthdata" />
-        <package android:name="com.google.android.wearable.healthservices" />
-        <package android:name="com.android.healthconnect.controller" />
-    </queries>
 
     <application
         android:theme="@android:style/Theme.DeviceDefault"
@@ -37,17 +27,6 @@
             <meta-data android:name="com.google.android.wearable.watchface.preview" android:resource="@drawable/preview" />
             <meta-data android:name="com.google.android.wearable.watchface.preview_circular" android:resource="@drawable/preview" />
         </service>
-
-        <!-- Launched on first install to request Health Connect permissions -->
-        <activity
-            android:name=".HealthPermissionActivity"
-            android:exported="true"
-            android:label="Health Permissions">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
 
     </application>
 </manifest>

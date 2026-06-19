@@ -16,6 +16,7 @@ app/libs/*.jar
 # Keystore
 *.jks
 *.keystore
+.env
 
 # OS
 .DS_Store
