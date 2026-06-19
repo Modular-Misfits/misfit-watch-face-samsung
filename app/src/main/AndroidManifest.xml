@@ -14,7 +14,8 @@
 
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
-        <package android:name="com.samsung.android.wear.shealth" />
+        <package android:name="com.google.android.wearable.healthservices" />
+        <package android:name="com.android.healthconnect.controller" />
     </queries>
 
     <application

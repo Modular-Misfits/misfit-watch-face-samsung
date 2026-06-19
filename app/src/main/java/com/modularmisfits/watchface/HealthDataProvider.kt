@@ -28,8 +28,11 @@ class HealthDataProvider(
         scope.launch {
             try {
                 val status = HealthConnectClient.getSdkStatus(context)
-                if (status != HealthConnectClient.SDK_AVAILABLE) {
-                    Log.w(TAG, "Health Connect not available: status=$status")
+                Log.i(TAG, "Health Connect SDK status=$status")
+                // On Wear OS the provider is wearable.healthservices — status may not be SDK_AVAILABLE
+                // but getOrCreate still works. Only bail on SDK_UNAVAILABLE (2).
+                if (status == HealthConnectClient.SDK_UNAVAILABLE) {
+                    Log.w(TAG, "Health Connect unavailable on this device")
                     onUpdate(HealthSnapshot())
                     return@launch
                 }
