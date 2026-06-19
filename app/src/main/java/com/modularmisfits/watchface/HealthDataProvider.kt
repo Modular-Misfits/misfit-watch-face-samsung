@@ -28,15 +28,25 @@ class HealthDataProvider(
         scope.launch {
             try {
                 val status = HealthConnectClient.getSdkStatus(context)
-                Log.i(TAG, "Health Connect SDK status=$status")
-                // On Wear OS the provider is wearable.healthservices — status may not be SDK_AVAILABLE
-                // but getOrCreate still works. Only bail on SDK_UNAVAILABLE (2).
+                Log.i(TAG, "Health Connect SDK status=$status (UNAVAILABLE=2, NEEDS_UPDATE=1, AVAILABLE=3)")
                 if (status == HealthConnectClient.SDK_UNAVAILABLE) {
-                    Log.w(TAG, "Health Connect unavailable on this device")
+                    Log.w(TAG, "Health Connect not present on this device")
                     onUpdate(HealthSnapshot())
                     return@launch
                 }
-                val client = HealthConnectClient.getOrCreate(context)
+                // On Wear OS, provider package differs — try both standard and wearable provider
+                val client = try {
+                    HealthConnectClient.getOrCreate(context, "com.google.android.wearable.healthservices")
+                } catch (e: Exception) {
+                    Log.w(TAG, "wearable provider failed (${e.message}), trying default")
+                    try {
+                        HealthConnectClient.getOrCreate(context)
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "getOrCreate failed: ${e2.javaClass.simpleName}: ${e2.message}")
+                        onUpdate(HealthSnapshot())
+                        return@launch
+                    }
+                }
                 val granted = client.permissionController.getGrantedPermissions()
                 if (granted.containsAll(HealthPermissionActivity.PERMISSIONS)) {
                     scheduleRefresh(client)
