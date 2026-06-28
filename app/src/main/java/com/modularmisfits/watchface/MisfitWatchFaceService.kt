@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.*
 import android.net.Uri
+import android.util.Log
 import android.view.SurfaceHolder
 import androidx.wear.watchface.*
 import androidx.wear.watchface.style.CurrentUserStyleRepository
@@ -37,8 +38,8 @@ class MisfitRenderer(
     surfaceHolder,
     currentUserStyleRepository,
     watchState,
-    CanvasType.HARDWARE,
-    16L
+    CanvasType.SOFTWARE,
+    1000L  // redraw once per second (seconds hand); was 16ms/60fps which drained battery
 ), WatchFace.TapListener {
 
     private val logo by lazy { BitmapFactory.decodeResource(context.resources, R.drawable.misfit_logo_clean) }
@@ -59,7 +60,7 @@ class MisfitRenderer(
     private val logoRed    = Color.rgb(210, 70, 70)
     private val logoBlue   = Color.rgb(70, 110, 180)
     private val stepGreen  = Color.rgb(70, 210, 130)
-    private val activeOrange = Color.rgb(255, 160, 0)
+    private val activePurple = Color.rgb(180, 100, 255)
     private val handOrange = Color.rgb(255, 140, 0)
     private val secondRed  = Color.rgb(228, 64, 72)
 
@@ -180,8 +181,8 @@ class MisfitRenderer(
 
     private fun drawStepsArc(canvas: Canvas, cx: Float, cy: Float, r: Float) {
         val arcR = r * 0.88f
-        val startAngle = 150f
-        val sweepTotal = -120f   // sweeps counter-clockwise from lower-left
+        val startAngle = 180f
+        val sweepTotal = 90f
 
         // Cache hit region for tap detection
         leftArcCx = cx; leftArcCy = cy; leftArcR = arcR
@@ -198,16 +199,16 @@ class MisfitRenderer(
 
         // Filled portion
         val pct = (health.steps / STEP_GOAL.toFloat()).coerceIn(0f, 1f)
-        val filled = pct * abs(sweepTotal)
+        val filledSweep = pct * sweepTotal
         paint.color = stepColor(pct)
-        canvas.drawArc(oval, startAngle, -filled, false, paint)
+        canvas.drawArc(oval, startAngle, filledSweep, false, paint)
 
-        // Tick marks at 25%, 50%, 75%, 100%
+        // 10 Ticks, one for each 1000 steps
         paint.strokeWidth = r * 0.018f
         paint.color = Color.rgb(50, 80, 60)
-        for (i in 0..4) {
-            val tickPct = i / 4f
-            val tickAngle = Math.toRadians((startAngle - tickPct * abs(sweepTotal)).toDouble())
+        for (i in 0..10) {
+            val tickPct = i / 10f
+            val tickAngle = Math.toRadians((startAngle + tickPct * sweepTotal).toDouble())
             val innerR = arcR - r * 0.055f
             val outerR = arcR + r * 0.055f
             canvas.drawLine(
@@ -218,9 +219,9 @@ class MisfitRenderer(
         }
 
         // Label
-        textPaint.textSize = r * 0.038f
+        textPaint.textSize = r * 0.045f
         textPaint.color = Color.rgb(120, 200, 140)
-        canvas.drawText("steps", cx - r * 0.82f, cy + r * 0.04f, textPaint)
+        drawCurvedText(canvas, "steps", cx, cy, arcR, startAngle, sweepTotal, textPaint)
         paint.style = Paint.Style.FILL
     }
 
@@ -247,7 +248,7 @@ class MisfitRenderer(
         paint.strokeWidth = r * 0.045f
         paint.strokeCap = Paint.Cap.ROUND
 
-        paint.color = Color.rgb(45, 35, 20)
+        paint.color = Color.rgb(40, 25, 55) // Dark purple background
         canvas.drawArc(oval, startAngle, sweepTotal, false, paint)
 
         val pct = (health.activeMinutes / ACTIVE_MIN_GOAL.toFloat()).coerceIn(0f, 1f)
@@ -256,7 +257,7 @@ class MisfitRenderer(
         canvas.drawArc(oval, startAngle, filled, false, paint)
 
         paint.strokeWidth = r * 0.018f
-        paint.color = Color.rgb(80, 60, 30)
+        paint.color = Color.rgb(70, 50, 90) // Mid purple for ticks
         for (i in 0..4) {
             val tickPct = i / 4f
             val tickAngle = Math.toRadians((startAngle + tickPct * abs(sweepTotal)).toDouble())
@@ -269,16 +270,18 @@ class MisfitRenderer(
             )
         }
 
-        textPaint.textSize = r * 0.038f
-        textPaint.color = Color.rgb(200, 160, 80)
-        canvas.drawText("active", cx + r * 0.82f, cy + r * 0.04f, textPaint)
+        // Label
+        textPaint.textSize = r * 0.045f
+        textPaint.color = Color.rgb(190, 140, 255)
+        drawCurvedText(canvas, "Active Time", cx, cy, arcR, startAngle, sweepTotal, textPaint)
         paint.style = Paint.Style.FILL
+        textPaint.textAlign = Paint.Align.CENTER // Reset alignment
     }
 
     private fun activeMinuteColor(pct: Float) = when {
-        pct >= 1.0f -> activeOrange
-        pct >= 0.5f -> Color.rgb(230, 140, 40)
-        else -> Color.rgb(180, 100, 40)
+        pct >= 1.0f -> activePurple
+        pct >= 0.5f -> Color.rgb(140, 80, 200)
+        else -> Color.rgb(100, 60, 160)
     }
 
     // ── Weather row (bottom center, replaces steps+active text) ──────────────────
@@ -454,7 +457,6 @@ class MisfitRenderer(
         when (tapCount) {
             1 -> handleSingleTap(x, y)
             2 -> { tapCount = 0; launchIntent(buildAlarmIntent()) }
-            3 -> { tapCount = 0; launchIntent(buildWalletIntent()) }
         }
         invalidate()
     }
@@ -469,58 +471,67 @@ class MisfitRenderer(
         val logoLeft = cx - logoW / 2
         val logoTop  = cy - logoH / 2 - r * 0.05f
         val dotR = logoW * 0.092f
-
-        // Left arc (steps) — annular hit zone at arcR ± strokeWidth
-        val arcR = r * 0.88f
         val distFromCenter = hypot(x - cx, y - cy)
-        val leftArcAngle = Math.toDegrees(atan2((y - cy).toDouble(), (x - cx).toDouble())).toFloat()
-            .let { if (it < 0) it + 360f else it }
-        // Left arc spans 150° → 30° going counter-clockwise = 150° → 270° clockwise dead zone
-        // Easier: arc covers 150°–270° in standard (clockwise from right). Check angle in [150,270].
-        val inLeftArcAngle = leftArcAngle in 150f..270f
-        if (inLeftArcAngle && distFromCenter in (arcR - r * 0.08f)..(arcR + r * 0.08f)) {
+
+        // Corrected Left Arc (Steps) Area: 9 o'clock (180 deg) to 6 o'clock (270 deg)
+        val arcR = r * 0.88f
+        val tapAngle = Math.toDegrees(atan2((y - cy).toDouble(), (x - cx).toDouble()))
+            .toFloat().let { if (it < 0) it + 360f else it }
+        val inArcAngle = tapAngle in 180f..270f
+        val inArcRadius = distFromCenter in (arcR - r * 0.08f)..(arcR + r * 0.08f)
+        if (inArcAngle && inArcRadius) {
             launchIntent(buildStepsIntent())
             return
         }
 
         // Info dots
-        data class Dot(val fx: Float, val fy: Float, val intent: Intent?)
+        data class Dot(val name: String, val fx: Float, val fy: Float, val intent: Intent?)
         val dots = listOf(
-            Dot(DOT_RED_FX,    DOT_RED_FY,    buildHeartRateIntent()),
-            Dot(DOT_TEAL_FX,   DOT_TEAL_FY,   buildCalendarIntent()),
-            Dot(DOT_LEFT_FX,   DOT_LEFT_FY,   buildCaloriesIntent()),
-            Dot(DOT_BOTTOM_FX, DOT_BOTTOM_FY, buildSleepIntent()),
+            Dot("HeartRate", DOT_RED_FX,    DOT_RED_FY,    buildHeartRateIntent()),
+            Dot("Calendar",  DOT_TEAL_FX,   DOT_TEAL_FY,   buildCalendarIntent()),
+            Dot("Calories",  DOT_LEFT_FX,   DOT_LEFT_FY,   buildCaloriesIntent()),
+            Dot("Sleep",     DOT_BOTTOM_FX, DOT_BOTTOM_FY, buildSleepIntent()),
         )
         for (dot in dots) {
             val dx = logoLeft + dot.fx * logoW
-            val dy = logoTop  + dot.fy * logoH
-            if (hypot(x - dx, y - dy) <= dotR * 1.4f) {
+            val dy = logoTop + dot.fy * logoH
+            val distFromDot = hypot(x - dx, y - dy)
+            if (distFromDot <= dotR * 1.4f) {
                 dot.intent?.let { launchIntent(it) }
                 return
             }
         }
     }
 
-    private fun launchIntent(intent: Intent) {
+    private fun launchIntent(intent: Intent?) {
+        intent ?: return
         try {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("MisfitTap", "launchIntent failed: ${e.message}")
+        }
     }
 
-    private fun buildHeartRateIntent() = Intent(Intent.ACTION_VIEW,
-        Uri.parse("shealth://com.sec.android.app.shealth/HeartRate"))
-    private fun buildCaloriesIntent() = Intent(Intent.ACTION_VIEW,
-        Uri.parse("shealth://com.sec.android.app.shealth/Dashboard"))
-    private fun buildSleepIntent() = Intent(Intent.ACTION_VIEW,
-        Uri.parse("shealth://com.sec.android.app.shealth/Sleep"))
-    private fun buildStepsIntent() = Intent(Intent.ACTION_VIEW,
-        Uri.parse("shealth://com.sec.android.app.shealth/StepCount"))
-    private fun buildCalendarIntent(): Intent =
-        Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_APP_CALENDAR) }
-    private fun buildAlarmIntent() = Intent("com.samsung.android.alarmclock.action.SET_ALARM").apply {
-        `package` = "com.sec.android.app.clockpackage"
+    private fun buildHealthIntent() = context.packageManager.getLaunchIntentForPackage("com.samsung.android.wear.shealth")
+    private fun buildCalendarIntent(): Intent? = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_APP_CALENDAR) }
+    private fun buildAlarmIntent() = context.packageManager.getLaunchIntentForPackage("com.samsung.android.watch.alarm")
+
+    // Keep specific intents for pages if they are ever needed, but for now, we launch the main app
+    private fun buildHeartRateIntent() = buildHealthIntent()
+    private fun buildCaloriesIntent() = buildHealthIntent()
+    private fun buildSleepIntent() = buildHealthIntent()
+    private fun buildStepsIntent() = buildHealthIntent()
+
+    private fun drawCurvedText(canvas: Canvas, text: String, centerX: Float, centerY: Float, radius: Float, startAngle: Float, sweepAngle: Float, paint: Paint) {
+        val path = Path().apply {
+            addArc(RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius), startAngle, sweepAngle)
+        }
+        val textWidth = paint.measureText(text)
+        val pathLength = (Math.toRadians(sweepAngle.toDouble()) * radius).toFloat()
+        val hOffset = (pathLength - textWidth) / 2f
+        // A negative vOffset pushes the text away from the path, which is what we want.
+        val vOffset = -20f
+        canvas.drawTextOnPath(text, path, hOffset, vOffset, paint)
     }
-    private fun buildWalletIntent() = Intent(Intent.ACTION_VIEW,
-        Uri.parse("samsungpay://com.samsung.android.spay"))
 }

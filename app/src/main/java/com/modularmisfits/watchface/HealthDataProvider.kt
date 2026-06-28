@@ -29,11 +29,16 @@ class HealthDataProvider(
     private val passiveCallback = object : PassiveListenerCallback {
         override fun onNewDataPointsReceived(dataPoints: DataPointContainer) {
             var changed = false
+            Log.d(TAG, "onNewDataPointsReceived TOP (changed=$changed, snapshot steps=${snapshot.steps})")
 
             dataPoints.getData(DataType.STEPS_DAILY).lastOrNull()?.let {
                 val v = it.value.toInt()
-                if (snapshot.steps != v) { snapshot = snapshot.copy(steps = v); changed = true }
-                Log.d(TAG, "steps_daily=$v")
+                Log.d(TAG, "STEPS_DAILY received value v=$v")
+                if (snapshot.steps != v) {
+                    snapshot = snapshot.copy(steps = v)
+                    changed = true
+                    Log.d(TAG, "STEPS_DAILY changed to $v, flag changed=$changed")
+                }
             }
 
             // Derive active minutes from STEPS interval bursts (cadence ≥ 60 steps/min = active)
@@ -87,8 +92,9 @@ class HealthDataProvider(
                     requested.add(DataType.STEPS)
                 if (DataType.CALORIES_DAILY in caps.supportedDataTypesPassiveMonitoring)
                     requested.add(DataType.CALORIES_DAILY)
-                if (DataType.HEART_RATE_BPM in caps.supportedDataTypesPassiveMonitoring)
-                    requested.add(DataType.HEART_RATE_BPM)
+                // HR passive monitoring keeps the sensor on continuously — too costly for a watch face.
+                // The system still pushes HR samples after workouts/auto-detection via HEART_RATE_BPM
+                // when registered as a passive goal; we skip it here to protect battery.
 
                 if (requested.isNotEmpty()) {
                     val config = PassiveListenerConfig.builder()
