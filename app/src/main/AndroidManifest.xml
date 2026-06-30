@@ -29,7 +29,22 @@
             <meta-data android:name="android.service.wallpaper" android:resource="@xml/watch_face" />
             <meta-data android:name="com.google.android.wearable.watchface.preview" android:resource="@drawable/preview" />
             <meta-data android:name="com.google.android.wearable.watchface.preview_circular" android:resource="@drawable/preview" />
+            <meta-data
+                android:name="com.google.android.wearable.watchface.wearableConfigurationAction"
+                android:value="com.modularmisfits.watchface.SETTINGS" />
         </service>
+
+        <activity
+            android:name=".WatchFaceSettingsActivity"
+            android:exported="true"
+            android:label="Misfit Goals"
+            android:theme="@android:style/Theme.DeviceDefault">
+            <intent-filter>
+                <action android:name="com.modularmisfits.watchface.SETTINGS" />
+                <category android:name="com.google.android.wearable.watchface.category.WEARABLE_CONFIGURATION" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
     </application>
 </manifest>

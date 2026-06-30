@@ -10,13 +10,12 @@ import kotlinx.coroutines.guava.await
 
 private const val TAG = "MisfitHealth"
 
-const val STEP_GOAL = 10_000
-const val ACTIVE_MIN_GOAL = 60
-
 class HealthDataProvider(
     private val context: Context,
     private val onUpdate: (HealthSnapshot) -> Unit
 ) {
+    val stepGoal get() = loadStepGoal(context)
+    val activeMinGoal get() = loadActiveMinGoal(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var snapshot = HealthSnapshot()
 
@@ -92,9 +91,8 @@ class HealthDataProvider(
                     requested.add(DataType.STEPS)
                 if (DataType.CALORIES_DAILY in caps.supportedDataTypesPassiveMonitoring)
                     requested.add(DataType.CALORIES_DAILY)
-                // HR passive monitoring keeps the sensor on continuously — too costly for a watch face.
-                // The system still pushes HR samples after workouts/auto-detection via HEART_RATE_BPM
-                // when registered as a passive goal; we skip it here to protect battery.
+                if (DataType.HEART_RATE_BPM in caps.supportedDataTypesPassiveMonitoring)
+                    requested.add(DataType.HEART_RATE_BPM)
 
                 if (requested.isNotEmpty()) {
                     val config = PassiveListenerConfig.builder()

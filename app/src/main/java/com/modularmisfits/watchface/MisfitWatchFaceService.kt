@@ -111,10 +111,13 @@ class MisfitRenderer(
         val ambient = renderParameters.drawMode == DrawMode.AMBIENT
 
         canvas.drawColor(Color.BLACK)
-        if (!ambient) drawRadialBackground(canvas, cx, cy, r)
-        else          drawAmbientBackground(canvas, cx, cy, r)
-
-        drawClockView(canvas, bounds, zonedDateTime, ambient)
+        if (!ambient) {
+            drawRadialBackground(canvas, cx, cy, r)
+            drawClockView(canvas, bounds, zonedDateTime, false)
+        } else {
+            drawAmbientBackground(canvas, cx, cy, r)
+            drawAmbientView(canvas, bounds, zonedDateTime)
+        }
     }
 
     override fun renderHighlightLayer(canvas: Canvas, bounds: Rect, zonedDateTime: ZonedDateTime) {
@@ -128,25 +131,24 @@ class MisfitRenderer(
         val cy = bounds.exactCenterY()
         val r  = min(bounds.width(), bounds.height()) / 2f
 
-        drawTicks(canvas, cx, cy, r, ambient)
+        drawTicks(canvas, cx, cy, r, false)
 
         // Logo
-        val logoW = if (ambient) r * 1.235f else r * 1.3775f
+        val logoW = r * 1.3775f
         val logoH = logoW * (724f / 783f)
         val logoLeft = cx - logoW / 2
         val logoTop  = cy - logoH / 2 - r * 0.05f
         val dst = RectF(logoLeft, logoTop, logoLeft + logoW, logoTop + logoH)
-        paint.alpha = if (ambient) 92 else 235
-        canvas.drawBitmap(if (ambient) ambientLogo else logo, null, dst, paint)
+        paint.alpha = 235
+        canvas.drawBitmap(logo, null, dst, paint)
         paint.alpha = 255
 
-        if (!ambient) {
-            drawStepsArc(canvas, cx, cy, r)
-            drawActiveMinutesArc(canvas, cx, cy, r)
-            drawWeatherRow(canvas, cx, cy, r)
-        }
+        drawStepsArc(canvas, cx, cy, r)
+        drawActiveMinutesArc(canvas, cx, cy, r)
+        drawWeatherRow(canvas, cx, cy, r)
+        drawLabels(canvas, cx, cy, r)
 
-        drawHands(canvas, cx, cy, r, time, ambient)
+        drawHands(canvas, cx, cy, r, time, false)
 
         // Info dots — always on top
         val dotR = logoW * 0.092f
@@ -155,26 +157,24 @@ class MisfitRenderer(
         val hrX = logoLeft + DOT_RED_FX * logoW
         val hrY = logoTop  + DOT_RED_FY * logoH
         drawInfoDot(canvas, hrX, hrY, dotR, logoRed,
-            if (health.heartRate > 0) "${health.heartRate}" else "--", "BPM", ambient)
+            if (health.heartRate > 0) "${health.heartRate}" else "--", "BPM", false)
 
         // Teal dot (right) — date
         val dateX = logoLeft + DOT_TEAL_FX * logoW
         val dateY = logoTop  + DOT_TEAL_FY * logoH
-        drawDateDot(canvas, dateX, dateY, dotR, time, ambient)
+        drawDateDot(canvas, dateX, dateY, dotR, time, false)
 
-        if (!ambient) {
-            // Blue dot (left) — calories
-            val calX = logoLeft + DOT_LEFT_FX * logoW
-            val calY = logoTop  + DOT_LEFT_FY * logoH
-            val calText = if (health.calories > 0) "${health.calories}" else "--"
-            drawInfoDot(canvas, calX, calY, dotR, logoBlue, calText, "cal", ambient)
+        // Blue dot (left) — calories
+        val calX = logoLeft + DOT_LEFT_FX * logoW
+        val calY = logoTop  + DOT_LEFT_FY * logoH
+        val calText = if (health.calories > 0) "${health.calories}" else "--"
+        drawInfoDot(canvas, calX, calY, dotR, logoBlue, calText, "cal", false)
 
-            // Blue dot (bottom) — sleep score
-            val sleepX = logoLeft + DOT_BOTTOM_FX * logoW
-            val sleepY = logoTop  + DOT_BOTTOM_FY * logoH
-            val sleepText = if (health.sleepScore > 0) "${health.sleepScore}" else "--"
-            drawInfoDot(canvas, sleepX, sleepY, dotR, logoBlue, sleepText, "sleep", ambient)
-        }
+        // Blue dot (bottom) — sleep score
+        val sleepX = logoLeft + DOT_BOTTOM_FX * logoW
+        val sleepY = logoTop  + DOT_BOTTOM_FY * logoH
+        val sleepText = if (health.sleepScore > 0) "${health.sleepScore}" else "--"
+        drawInfoDot(canvas, sleepX, sleepY, dotR, logoBlue, sleepText, "sleep", false)
     }
 
     // ── Left arc: steps toward 10k goal ─────────────────────────────────────────
@@ -198,31 +198,10 @@ class MisfitRenderer(
         canvas.drawArc(oval, startAngle, sweepTotal, false, paint)
 
         // Filled portion
-        val pct = (health.steps / STEP_GOAL.toFloat()).coerceIn(0f, 1f)
+        val pct = (health.steps / healthProvider.stepGoal.toFloat()).coerceIn(0f, 1f)
         val filledSweep = pct * sweepTotal
         paint.color = stepColor(pct)
         canvas.drawArc(oval, startAngle, filledSweep, false, paint)
-
-        // 10 Ticks, one for each 1000 steps
-        paint.strokeWidth = r * 0.018f
-        paint.color = Color.rgb(50, 80, 60)
-        for (i in 0..10) {
-            val tickPct = i / 10f
-            val tickAngle = Math.toRadians((startAngle + tickPct * sweepTotal).toDouble())
-            val innerR = arcR - r * 0.055f
-            val outerR = arcR + r * 0.055f
-            canvas.drawLine(
-                cx + cos(tickAngle).toFloat() * innerR, cy + sin(tickAngle).toFloat() * innerR,
-                cx + cos(tickAngle).toFloat() * outerR, cy + sin(tickAngle).toFloat() * outerR,
-                paint
-            )
-        }
-
-        // Label
-        textPaint.textSize = r * 0.045f
-        textPaint.color = Color.rgb(120, 200, 140)
-        drawCurvedText(canvas, "steps", cx, cy, arcR, startAngle, sweepTotal, textPaint)
-        paint.style = Paint.Style.FILL
     }
 
     private fun stepColor(pct: Float) = when {
@@ -251,31 +230,11 @@ class MisfitRenderer(
         paint.color = Color.rgb(40, 25, 55) // Dark purple background
         canvas.drawArc(oval, startAngle, sweepTotal, false, paint)
 
-        val pct = (health.activeMinutes / ACTIVE_MIN_GOAL.toFloat()).coerceIn(0f, 1f)
+        val pct = (health.activeMinutes / healthProvider.activeMinGoal.toFloat()).coerceIn(0f, 1f)
         val filled = pct * abs(sweepTotal)
         paint.color = activeMinuteColor(pct)
         canvas.drawArc(oval, startAngle, filled, false, paint)
 
-        paint.strokeWidth = r * 0.018f
-        paint.color = Color.rgb(70, 50, 90) // Mid purple for ticks
-        for (i in 0..4) {
-            val tickPct = i / 4f
-            val tickAngle = Math.toRadians((startAngle + tickPct * abs(sweepTotal)).toDouble())
-            val innerR = arcR - r * 0.055f
-            val outerR = arcR + r * 0.055f
-            canvas.drawLine(
-                cx + cos(tickAngle).toFloat() * innerR, cy + sin(tickAngle).toFloat() * innerR,
-                cx + cos(tickAngle).toFloat() * outerR, cy + sin(tickAngle).toFloat() * outerR,
-                paint
-            )
-        }
-
-        // Label
-        textPaint.textSize = r * 0.045f
-        textPaint.color = Color.rgb(190, 140, 255)
-        drawCurvedText(canvas, "Active Time", cx, cy, arcR, startAngle, sweepTotal, textPaint)
-        paint.style = Paint.Style.FILL
-        textPaint.textAlign = Paint.Align.CENTER // Reset alignment
     }
 
     private fun activeMinuteColor(pct: Float) = when {
@@ -300,20 +259,22 @@ class MisfitRenderer(
         val symbol = weather.conditionSymbol()
         val hiloStr = "H:${weather.highF.toInt()}° L:${weather.lowF.toInt()}°"
 
-        // Condition symbol (emoji-like)
+        // Icon centered on left half (~7:00 position)
+        val iconX = cx - r * 0.50f
         textPaint.textSize = r * 0.085f
         textPaint.color = Color.WHITE
-        canvas.drawText(symbol, cx - r * 0.28f, baseY, textPaint)
+        canvas.drawText(symbol, iconX, baseY, textPaint)
 
-        // Temperature
+        // Temperature centered on right half (~5:00 position)
+        val tempX = cx + r * 0.50f
         textPaint.textSize = r * 0.082f
         textPaint.color = Color.WHITE
-        canvas.drawText(tempStr, cx + r * 0.15f, baseY, textPaint)
+        canvas.drawText(tempStr, tempX, baseY, textPaint)
 
-        // High/Low below
-        textPaint.textSize = r * 0.036f
+        // High/Low centered between them
+        textPaint.textSize = r * 0.082f
         textPaint.color = Color.rgb(140, 170, 190)
-        canvas.drawText(hiloStr, cx, baseY + r * 0.09f, textPaint)
+        canvas.drawText(hiloStr, cx, baseY + r * 0.10f, textPaint)
     }
 
     // ── Generic info dot ─────────────────────────────────────────────────────────
@@ -523,15 +484,81 @@ class MisfitRenderer(
     private fun buildSleepIntent() = buildHealthIntent()
     private fun buildStepsIntent() = buildHealthIntent()
 
-    private fun drawCurvedText(canvas: Canvas, text: String, centerX: Float, centerY: Float, radius: Float, startAngle: Float, sweepAngle: Float, paint: Paint) {
-        val path = Path().apply {
-            addArc(RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius), startAngle, sweepAngle)
+    // ── Ambient view — minimal, low power ───────────────────────────────────────
+
+    private fun drawAmbientView(canvas: Canvas, bounds: Rect, time: ZonedDateTime) {
+        val cx = bounds.exactCenterX()
+        val cy = bounds.exactCenterY()
+        val r  = min(bounds.width(), bounds.height()) / 2f
+
+        drawTicks(canvas, cx, cy, r, true)
+
+        // Dimmed logo
+        val logoW = r * 1.235f
+        val logoH = logoW * (724f / 783f)
+        val logoLeft = cx - logoW / 2
+        val logoTop  = cy - logoH / 2 - r * 0.05f
+        val dst = RectF(logoLeft, logoTop, logoLeft + logoW, logoTop + logoH)
+        paint.alpha = 92
+        canvas.drawBitmap(ambientLogo, null, dst, paint)
+        paint.alpha = 255
+
+        // Digital time — large, centered, HH:mm
+        val h = time.hour
+        val m = time.minute
+        val timeStr = "%02d:%02d".format(h, m)
+        textPaint.textSize = r * 0.36f
+        textPaint.color = Color.WHITE
+        textPaint.typeface = Typeface.DEFAULT_BOLD
+        canvas.drawText(timeStr, cx, cy - r * 0.08f, textPaint)
+
+        // Weather — symbol + temp on one line below time
+        if (weather.hasData) {
+            val weatherStr = "${weather.conditionSymbol()} ${weather.tempF.toInt()}°F"
+            textPaint.textSize = r * 0.11f
+            textPaint.color = Color.rgb(160, 180, 200)
+            canvas.drawText(weatherStr, cx, cy + r * 0.22f, textPaint)
         }
-        val textWidth = paint.measureText(text)
-        val pathLength = (Math.toRadians(sweepAngle.toDouble()) * radius).toFloat()
-        val hOffset = (pathLength - textWidth) / 2f
-        // A negative vOffset pushes the text away from the path, which is what we want.
-        val vOffset = -20f
-        canvas.drawTextOnPath(text, path, hOffset, vOffset, paint)
+
+        // Date dot (teal, top-right)
+        val dotR = logoW * 0.092f
+        val dateX = logoLeft + DOT_TEAL_FX * logoW
+        val dateY = logoTop  + DOT_TEAL_FY * logoH
+        drawDateDot(canvas, dateX, dateY, dotR, time, true)
+
+        // Heart rate dot (red, top)
+        val hrX = logoLeft + DOT_RED_FX * logoW
+        val hrY = logoTop  + DOT_RED_FY * logoH
+        drawInfoDot(canvas, hrX, hrY, dotR, logoRed,
+            if (health.heartRate > 0) "${health.heartRate}" else "--", "BPM", true)
+
+        // Minimal hands (no second hand in ambient)
+        val sec  = time.second + time.nano / 1_000_000_000f
+        val min  = time.minute + sec / 60f
+        val hour = (time.hour % 12) + min / 60f
+        drawHand(canvas, cx, cy, r * 0.48f, hour * 30f - 90f, Color.GRAY, 9f)
+        drawHand(canvas, cx, cy, r * 0.70f, min  *  6f - 90f, Color.GRAY, 6f)
+        paint.color = Color.GRAY
+        canvas.drawCircle(cx, cy, r * 0.035f, paint)
+    }
+
+    private fun drawLabels(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val labelRadius = r * 0.94f
+        textPaint.textSize = r * 0.055f
+        textPaint.textAlign = Paint.Align.CENTER
+
+        // "steps" at 10:30 — upper-left quadrant, text reads outward upright
+        textPaint.color = Color.rgb(120, 200, 140)
+        canvas.save()
+        canvas.rotate(315f, cx, cy)
+        canvas.drawText("steps", cx, cy - labelRadius, textPaint)
+        canvas.restore()
+
+        // "active" at 1:30 — lower-right quadrant, flip 180° so text reads outward upright
+        textPaint.color = Color.rgb(190, 140, 255)
+        canvas.save()
+        canvas.rotate(150f + 180f, cx, cy)
+        canvas.drawText("active", cx, cy + labelRadius, textPaint)
+        canvas.restore()
     }
 }

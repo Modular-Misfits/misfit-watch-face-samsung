@@ -20,3 +20,6 @@ app/libs/*.jar
 
 # OS
 .DS_Store
+
+#debug
+screenshots/

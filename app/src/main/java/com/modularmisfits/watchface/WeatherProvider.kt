@@ -14,16 +14,17 @@ import java.net.URL
 
 private const val TAG = "MisfitWeather"
 private const val REFRESH_MS = 30 * 60 * 1000L
+private const val INITIAL_DELAY_MS = 5_000L  // wait for engine to fully bind before first fetch
 
 class WeatherProvider(
     private val context: Context,
     private val onUpdate: (WeatherSnapshot) -> Unit
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val fusedClient = LocationServices.getFusedLocationProviderClient(context)
 
     fun start() {
         scope.launch {
+            delay(INITIAL_DELAY_MS)
             while (isActive) {
                 fetchAndEmit()
                 delay(REFRESH_MS)
@@ -41,13 +42,12 @@ class WeatherProvider(
         }
 
         val loc = try {
-            // Try last known first (instant, no battery cost)
+            val fusedClient = LocationServices.getFusedLocationProviderClient(context)
             val last = fusedClient.lastLocation.await()
             if (last != null) {
                 Log.d(TAG, "Using last known location: ${last.latitude}, ${last.longitude}")
                 last
             } else {
-                // Request a fresh coarse fix
                 Log.d(TAG, "No last location — requesting current")
                 val cts = CancellationTokenSource()
                 fusedClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, cts.token).await()
@@ -58,7 +58,7 @@ class WeatherProvider(
         }
 
         if (loc == null) {
-            Log.w(TAG, "No location available")
+            Log.w(TAG, "No location available — will retry next cycle")
             return
         }
 
